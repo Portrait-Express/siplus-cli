@@ -1,5 +1,3 @@
-#include "siplus/parser.h"
-#include "siplus/text/data.h"
 #include <cpptrace/cpptrace.hpp>
 #include <csignal>
 #include <siplus/siplus.h>
@@ -36,12 +34,35 @@ private:
 };
 
 struct Args {
-    bool help = false;
     std::string input;
     std::unique_ptr<stream_wrapper> out;
     SIPlus::text::UnknownDataTypeContainer default_value;
     std::unordered_map<std::string, SIPlus::text::UnknownDataTypeContainer> args;
 };
+
+void help() {
+    std::cout 
+        << "siplus: SIPlus String Interpolation CLI Utility\n"
+        << "usage: siplus <template> -d <default> [-v VAL=<value>]\n"
+        << "\n"
+        << "Arguments:\n"
+        << "\t-h\t--help\t\t\tShow this help message.\n"
+        << "\t-i\t--input <file>\t\tUse input file instead of raw template text.\n"
+        << "\t-v\t--val <name>=<value>\tSet value for use in template. This will be made available as a global.\n"
+        << "\t-d\t--default <value>\tSet value for use in template. This will be made available as a the default value.\n"
+        << "\t-o\t--output <file>\t\tOutput to file instead of to stdout.\n"
+        << "\n"
+        << "Examples:"
+        << "    siplus \"Hello, {$first} {$last}\" -v first=john -v last=doe\n"
+        << "    # Hello, john doe\n"
+        << "\n"
+        << "    siplus \"Hello, {.}\" -d world\n"
+        << "    # Hello, world\n"
+        << "\n"
+        << "    siplus -i hello.txt -v first=world\n"
+        << "    # Hello, world\n"
+        << std::endl;
+}
 
 void assert(bool test, const std::string& msg) {
     if(!test) {
@@ -66,17 +87,17 @@ std::pair<std::string, std::string> parse_val(const std::string& val) {
     return {name, value};
 }
 
-Args parse_args(int argc, char **argv) {
+void parse_args(Args& args, int argc, char **argv) {
     bool input_specified = false;
     bool output_specified = false;
     bool default_specified = false;
-    Args args;
 
     for(int i = 1; i < argc; i++) {
         std::string val = argv[i];
 
         if(val == "-h" || val == "--help") {
-            args.help = true;
+            help();
+            std::exit(0);
 
         } else if(val == "-i" || val == "--input") {
             assert(!input_specified, "input was already specified, -i was unexpected");
@@ -122,34 +143,8 @@ Args parse_args(int argc, char **argv) {
         args.out = std::make_unique<stream_wrapper>(std::cout);
     }
 
-    assert(input_specified, "No input specified");
+    assert(input_specified, "No input specified (-h for help)");
     assert(default_specified, "No default value specified");
-
-    return args;
-}
-
-void help() {
-    std::cout 
-        << "siplus: SIPlus String Interpolation CLI Utility\n"
-        << "usage: siplus <template> -d <default> [-v VAL=<value>]\n"
-        << "\n"
-        << "Arguments:\n"
-        << "\t-h\t--help\t\t\tShow this help message.\n"
-        << "\t-i\t--input <file>\t\tUse input file instead of raw template text.\n"
-        << "\t-v\t--val <name>=<value>\tSet value for use in template. This will be made available as a global.\n"
-        << "\t-d\t--default <value>\tSet value for use in template. This will be made available as a the default value.\n"
-        << "\t-o\t--output <file>\t\tOutput to file instead of to stdout.\n"
-        << "\n"
-        << "Examples:"
-        << "    siplus \"Hello, {$first} {$last}\" -v first=john -v last=doe\n"
-        << "    # Hello, john doe\n"
-        << "\n"
-        << "    siplus \"Hello, {.}\" -d world\n"
-        << "    # Hello, world\n"
-        << "\n"
-        << "    siplus -i hello.txt -v first=world\n"
-        << "    # Hello, world\n"
-        << std::endl;
 }
 
 void signal_handler(int signal) {
@@ -162,11 +157,13 @@ int main(int argc, char **argv) {
     std::signal(SIGSEGV, signal_handler);
     std::signal(SIGABRT, signal_handler);
 
-    Args args = parse_args(argc, argv);
+    Args args;
 
-    if(args.help) {
-        help();
-        return 0;
+    try {
+        parse_args(args, argc, argv);
+    } catch(std::runtime_error& e) {
+        std::cerr << "error: " << e.what() << std::endl;
+        return 2;
     }
 
     SIPlus::Parser parser;
@@ -176,14 +173,26 @@ int main(int argc, char **argv) {
         opts.globals.push_back(k);
     }
 
-    auto constructor = parser.get_interpolation(args.input, opts);
+    SIPlus::text::TextConstructor constructor;
+    try {
+        constructor = parser.get_interpolation(args.input, opts);
+    } catch(std::runtime_error& e) {
+        std::cerr << "parse error: " << e.what() << std::endl;
+        return 1;
+    }
 
     auto ctxBuilder = parser.context().builder().use_default(args.default_value);
     for(auto [k, v] : args.args) {
         ctxBuilder.with(k, v);
     }
 
-    auto text = constructor.construct_with(ctxBuilder.build());
+    std::string text;
+    try {
+        text = constructor.construct_with(ctxBuilder.build());
+    } catch(std::runtime_error& e) {
+        std::cerr << "execution error: " << e.what() << std::endl;
+        return 1;
+    }
 
     *args.out << text << std::flush;
 
