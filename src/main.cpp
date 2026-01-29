@@ -161,7 +161,7 @@ int main(int argc, char **argv) {
 
     try {
         parse_args(args, argc, argv);
-    } catch(std::runtime_error& e) {
+    } catch(std::exception& e) {
         std::cerr << "error: " << e.what() << std::endl;
         return 2;
     }
@@ -176,7 +176,7 @@ int main(int argc, char **argv) {
     SIPlus::text::TextConstructor constructor;
     try {
         constructor = parser.get_interpolation(args.input, opts);
-    } catch(std::runtime_error& e) {
+    } catch(std::exception& e) {
         std::cerr << "parse error: " << e.what() << std::endl;
         return 1;
     }
@@ -189,7 +189,7 @@ int main(int argc, char **argv) {
     std::string text;
     try {
         text = constructor.construct_with(ctxBuilder.build());
-    } catch(std::runtime_error& e) {
+    } catch(std::exception& e) {
         std::cerr << "execution error: " << e.what() << std::endl;
         return 1;
     }
